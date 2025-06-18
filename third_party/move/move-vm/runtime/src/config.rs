@@ -34,6 +34,9 @@ pub struct VMConfig {
     pub use_call_tree_and_instruction_cache: bool,
     pub enable_lazy_loading: bool,
     pub enable_depth_checks: bool,
+    /// When this flag is set to true, Move VM will perform additional checks to ensure that
+    /// reference safety is maintained during execution.
+    pub paranoid_ref_checks: bool,
 }
 
 impl Default for VMConfig {
@@ -54,6 +57,7 @@ impl Default for VMConfig {
             use_call_tree_and_instruction_cache: true,
             enable_lazy_loading: false,
             enable_depth_checks: true,
+            paranoid_ref_checks: false,
         }
     }
 }
