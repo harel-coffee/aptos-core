@@ -35,6 +35,7 @@ allowing cleaner iterator APIs.
 -  [Enum `Node`](#0x1_big_ordered_map_Node)
 -  [Enum `Child`](#0x1_big_ordered_map_Child)
 -  [Enum `IteratorPtr`](#0x1_big_ordered_map_IteratorPtr)
+-  [Struct `IteratorPtrWithPath`](#0x1_big_ordered_map_IteratorPtrWithPath)
 -  [Enum `BigOrderedMap`](#0x1_big_ordered_map_BigOrderedMap)
 -  [Constants](#@Constants_0)
 -  [Function `new`](#0x1_big_ordered_map_new)
@@ -49,11 +50,15 @@ allowing cleaner iterator APIs.
 -  [Function `add`](#0x1_big_ordered_map_add)
 -  [Function `upsert`](#0x1_big_ordered_map_upsert)
 -  [Function `remove`](#0x1_big_ordered_map_remove)
+-  [Function `remove_or_none`](#0x1_big_ordered_map_remove_or_none)
+-  [Function `modify`](#0x1_big_ordered_map_modify)
 -  [Function `add_all`](#0x1_big_ordered_map_add_all)
 -  [Function `pop_front`](#0x1_big_ordered_map_pop_front)
 -  [Function `pop_back`](#0x1_big_ordered_map_pop_back)
 -  [Function `lower_bound`](#0x1_big_ordered_map_lower_bound)
 -  [Function `find`](#0x1_big_ordered_map_find)
+-  [Function `find_with_path`](#0x1_big_ordered_map_find_with_path)
+-  [Function `iter_with_path_get_iter`](#0x1_big_ordered_map_iter_with_path_get_iter)
 -  [Function `contains`](#0x1_big_ordered_map_contains)
 -  [Function `borrow`](#0x1_big_ordered_map_borrow)
 -  [Function `get`](#0x1_big_ordered_map_get)
@@ -77,6 +82,8 @@ allowing cleaner iterator APIs.
 -  [Function `iter_borrow_key`](#0x1_big_ordered_map_iter_borrow_key)
 -  [Function `iter_borrow`](#0x1_big_ordered_map_iter_borrow)
 -  [Function `iter_borrow_mut`](#0x1_big_ordered_map_iter_borrow_mut)
+-  [Function `iter_modify`](#0x1_big_ordered_map_iter_modify)
+-  [Function `iter_remove`](#0x1_big_ordered_map_iter_remove)
 -  [Function `iter_next`](#0x1_big_ordered_map_iter_next)
 -  [Function `iter_prev`](#0x1_big_ordered_map_iter_prev)
 -  [Function `for_each_leaf_node_ref`](#0x1_big_ordered_map_for_each_leaf_node_ref)
@@ -348,6 +355,39 @@ TODO: Once fields can be (mutable) references, this class will be deprecated.
 </details>
 
 </details>
+
+</details>
+
+<a id="0x1_big_ordered_map_IteratorPtrWithPath"></a>
+
+## Struct `IteratorPtrWithPath`
+
+
+
+<pre><code><b>struct</b> <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a>&lt;K&gt; <b>has</b> <b>copy</b>, drop
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>iterator: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>path: <a href="../../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;u64&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
 
 </details>
 
@@ -1047,6 +1087,82 @@ Aborts if there is no entry for <code>key</code>.
 
 </details>
 
+<a id="0x1_big_ordered_map_remove_or_none"></a>
+
+## Function `remove_or_none`
+
+Removes the entry from BigOrderedMap and returns the value which <code>key</code> maps to.
+Returns none if there is no entry for <code>key</code>.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_remove_or_none">remove_or_none</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_Option">option::Option</a>&lt;V&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_remove_or_none">remove_or_none</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;, key: &K): Option&lt;V&gt; {
+    // Optimize case <b>where</b> only root node <b>exists</b>
+    // (optimizes out borrowing and path creation in `find_leaf_path`)
+    <b>if</b> (self.root.is_leaf) {
+        <b>let</b> value_option = self.root.children.<a href="big_ordered_map.md#0x1_big_ordered_map_remove_or_none">remove_or_none</a>(key);
+        <b>if</b> (value_option.is_some()) {
+            <b>let</b> Child::Leaf {
+                value,
+            } = value_option.destroy_some();
+            <b>return</b> <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_some">option::some</a>(value);
+        } <b>else</b> {
+            value_option.destroy_none();
+            <b>return</b> <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_none">option::none</a>();
+        }
+    };
+
+    <b>let</b> path_to_leaf = self.<a href="big_ordered_map.md#0x1_big_ordered_map_find_leaf_path">find_leaf_path</a>(key);
+
+    <b>if</b> (path_to_leaf.<a href="big_ordered_map.md#0x1_big_ordered_map_is_empty">is_empty</a>()) {
+        <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_none">option::none</a>()
+    } <b>else</b> {
+        <b>let</b> Child::Leaf {
+            value,
+        } = self.<a href="big_ordered_map.md#0x1_big_ordered_map_remove_at">remove_at</a>(path_to_leaf, key);
+        <a href="../../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option_some">option::some</a>(value)
+    }
+}
+</code></pre>
+
+
+
+</details>
+
+<a id="0x1_big_ordered_map_modify"></a>
+
+## Function `modify`
+
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_modify">modify</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K, f: |&<b>mut</b> V|)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_modify">modify</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;, key: &K, f: |&<b>mut</b> V|) {
+    <b>let</b> iter = self.<a href="big_ordered_map.md#0x1_big_ordered_map_find">find</a>(key);
+    <b>assert</b>!(!iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>(self), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EKEY_NOT_FOUND">EKEY_NOT_FOUND</a>));
+    iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_modify">iter_modify</a>(self, f);
+}
+</code></pre>
+
+
+
+</details>
+
 <a id="0x1_big_ordered_map_add_all"></a>
 
 ## Function `add_all`
@@ -1139,7 +1255,7 @@ Returns an iterator pointing to the first element that is greater or equal to th
 key, or an end iterator if such element doesn't exist.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_lower_bound">lower_bound</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_lower_bound">lower_bound</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -1148,7 +1264,7 @@ key, or an end iterator if such element doesn't exist.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_lower_bound">lower_bound</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_lower_bound">lower_bound</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
     <b>let</b> leaf = self.<a href="big_ordered_map.md#0x1_big_ordered_map_find_leaf">find_leaf</a>(key);
     <b>if</b> (leaf == <a href="big_ordered_map.md#0x1_big_ordered_map_NULL_INDEX">NULL_INDEX</a>) {
         <b>return</b> self.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>()
@@ -1179,7 +1295,7 @@ Returns an iterator pointing to the element that equals to the provided key, or 
 iterator if the key is not found.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_find">find</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_find">find</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -1188,7 +1304,7 @@ iterator if the key is not found.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_find">find</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_find">find</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
     <b>let</b> lower_bound = self.<a href="big_ordered_map.md#0x1_big_ordered_map_lower_bound">lower_bound</a>(key);
     <b>if</b> (lower_bound.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>(self)) {
         lower_bound
@@ -1197,6 +1313,74 @@ iterator if the key is not found.
     } <b>else</b> {
         self.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>()
     }
+}
+</code></pre>
+
+
+
+</details>
+
+<a id="0x1_big_ordered_map_find_with_path"></a>
+
+## Function `find_with_path`
+
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_find_with_path">find_with_path</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">big_ordered_map::IteratorPtrWithPath</a>&lt;K&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_find_with_path">find_with_path</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a>&lt;K&gt; {
+    <b>let</b> leaf_path = self.<a href="big_ordered_map.md#0x1_big_ordered_map_find_leaf_path">find_leaf_path</a>(key);
+    <b>if</b> (leaf_path.<a href="big_ordered_map.md#0x1_big_ordered_map_is_empty">is_empty</a>()) {
+        <b>return</b> <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a> { iterator: self.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>(), path: <a href="../../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector_empty">vector::empty</a>() };
+    };
+
+    <b>let</b> leaf = leaf_path[leaf_path.length() - 1];
+    <b>let</b> node = self.<a href="big_ordered_map.md#0x1_big_ordered_map_borrow_node">borrow_node</a>(leaf);
+    <b>assert</b>!(node.is_leaf, <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_state">error::invalid_state</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EINTERNAL_INVARIANT_BROKEN">EINTERNAL_INVARIANT_BROKEN</a>));
+
+    <b>let</b> child_lower_bound = node.children.<a href="big_ordered_map.md#0x1_big_ordered_map_lower_bound">lower_bound</a>(key);
+    <b>if</b> (child_lower_bound.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>(&node.children)) {
+        <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a> { iterator: self.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>(), path: <a href="../../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector_empty">vector::empty</a>() }
+    } <b>else</b> {
+        <b>let</b> iter_key = *child_lower_bound.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>(&node.children);
+
+        <b>if</b> (&iter_key == key) {
+            <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a> { iterator: <a href="big_ordered_map.md#0x1_big_ordered_map_new_iter">new_iter</a>(leaf, child_lower_bound, iter_key), path: leaf_path }
+        } <b>else</b> {
+            <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a> { iterator: self.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>(), path: <a href="../../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector_empty">vector::empty</a>() }
+        }
+    }
+}
+</code></pre>
+
+
+
+</details>
+
+<a id="0x1_big_ordered_map_iter_with_path_get_iter"></a>
+
+## Function `iter_with_path_get_iter`
+
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_with_path_get_iter">iter_with_path_get_iter</a>&lt;K: <b>copy</b>, drop, store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">big_ordered_map::IteratorPtrWithPath</a>&lt;K&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_with_path_get_iter">iter_with_path_get_iter</a>&lt;K: drop + <b>copy</b> + store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a>&lt;K&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
+    self.iterator
 }
 </code></pre>
 
@@ -1741,7 +1925,7 @@ to O(n).
 Returns the begin iterator.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_begin_iter">new_begin_iter</a>&lt;K: <b>copy</b>, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_begin_iter">new_begin_iter</a>&lt;K: <b>copy</b>, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -1750,7 +1934,7 @@ Returns the begin iterator.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_begin_iter">new_begin_iter</a>&lt;K: <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_begin_iter">new_begin_iter</a>&lt;K: <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
     <b>if</b> (self.<a href="big_ordered_map.md#0x1_big_ordered_map_is_empty">is_empty</a>()) {
         <b>return</b> IteratorPtr::End;
     };
@@ -1774,7 +1958,7 @@ Returns the begin iterator.
 Returns the end iterator.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>&lt;K: <b>copy</b>, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>&lt;K: <b>copy</b>, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -1783,7 +1967,7 @@ Returns the end iterator.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>&lt;K: <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>&lt;K: <b>copy</b> + store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
     IteratorPtr::End
 }
 </code></pre>
@@ -1798,7 +1982,7 @@ Returns the end iterator.
 
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_begin">iter_is_begin</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): bool
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_begin">iter_is_begin</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): bool
 </code></pre>
 
 
@@ -1807,7 +1991,7 @@ Returns the end iterator.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_begin">iter_is_begin</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): bool {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_begin">iter_is_begin</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): bool {
     <b>if</b> (self is IteratorPtr::End&lt;K&gt;) {
         map.<a href="big_ordered_map.md#0x1_big_ordered_map_is_empty">is_empty</a>()
     } <b>else</b> {
@@ -1826,7 +2010,7 @@ Returns the end iterator.
 
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, _map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): bool
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, _map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): bool
 </code></pre>
 
 
@@ -1835,7 +2019,7 @@ Returns the end iterator.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, _map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): bool {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, _map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): bool {
     self is IteratorPtr::End&lt;K&gt;
 }
 </code></pre>
@@ -1853,7 +2037,7 @@ Aborts with EITER_OUT_OF_BOUNDS if iterator is pointing to the end.
 Note: Requires that the map is not changed after the input iterator is generated.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>&lt;K&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;): &K
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>&lt;K&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;): &K
 </code></pre>
 
 
@@ -1862,7 +2046,7 @@ Note: Requires that the map is not changed after the input iterator is generated
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>&lt;K&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;): &K {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>&lt;K&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;): &K {
     <b>assert</b>!(!(self is IteratorPtr::End&lt;K&gt;), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EITER_OUT_OF_BOUNDS">EITER_OUT_OF_BOUNDS</a>));
     &self.key
 }
@@ -1881,7 +2065,7 @@ Aborts with EITER_OUT_OF_BOUNDS if iterator is pointing to the end.
 Note: Requires that the map is not changed after the input iterator is generated.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow">iter_borrow</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): &V
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow">iter_borrow</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): &V
 </code></pre>
 
 
@@ -1890,7 +2074,7 @@ Note: Requires that the map is not changed after the input iterator is generated
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow">iter_borrow</a>&lt;K: drop + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): &V {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow">iter_borrow</a>&lt;K: drop + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): &V {
     <b>assert</b>!(!self.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>(map), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EITER_OUT_OF_BOUNDS">EITER_OUT_OF_BOUNDS</a>));
     <b>let</b> IteratorPtr::Some { node_index, child_iter, key: _ } = self;
     <b>let</b> children = &map.<a href="big_ordered_map.md#0x1_big_ordered_map_borrow_node">borrow_node</a>(node_index).children;
@@ -1915,7 +2099,7 @@ In case of variable size, use either <code>borrow</code>, <code><b>copy</b></cod
 Note: Requires that the map is not changed after the input iterator is generated.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_mut">iter_borrow_mut</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): &<b>mut</b> V
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_mut">iter_borrow_mut</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): &<b>mut</b> V
 </code></pre>
 
 
@@ -1924,12 +2108,93 @@ Note: Requires that the map is not changed after the input iterator is generated
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_mut">iter_borrow_mut</a>&lt;K: drop + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): &<b>mut</b> V {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_mut">iter_borrow_mut</a>&lt;K: drop + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): &<b>mut</b> V {
     <b>assert</b>!(map.constant_kv_size || <a href="../../aptos-stdlib/../move-stdlib/doc/bcs.md#0x1_bcs_constant_serialized_size">bcs::constant_serialized_size</a>&lt;V&gt;().is_some(), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EBORROW_MUT_REQUIRES_CONSTANT_VALUE_SIZE">EBORROW_MUT_REQUIRES_CONSTANT_VALUE_SIZE</a>));
     <b>assert</b>!(!self.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>(map), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EITER_OUT_OF_BOUNDS">EITER_OUT_OF_BOUNDS</a>));
     <b>let</b> IteratorPtr::Some { node_index, child_iter, key: _ } = self;
     <b>let</b> children = &<b>mut</b> map.<a href="big_ordered_map.md#0x1_big_ordered_map_borrow_node_mut">borrow_node_mut</a>(node_index).children;
     &<b>mut</b> child_iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_mut">iter_borrow_mut</a>(children).value
+}
+</code></pre>
+
+
+
+</details>
+
+<a id="0x1_big_ordered_map_iter_modify"></a>
+
+## Function `iter_modify`
+
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_modify">iter_modify</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, f: |&<b>mut</b> V|)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_modify">iter_modify</a>&lt;K: drop + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;, f: |&<b>mut</b> V|) {
+    <b>assert</b>!(!self.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>(map), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EITER_OUT_OF_BOUNDS">EITER_OUT_OF_BOUNDS</a>));
+    <b>let</b> IteratorPtr::Some { node_index, child_iter, key } = self;
+    <b>let</b> children = &<b>mut</b> map.<a href="big_ordered_map.md#0x1_big_ordered_map_borrow_node_mut">borrow_node_mut</a>(node_index).children;
+    <b>let</b> value_mut = &<b>mut</b> child_iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_mut">iter_borrow_mut</a>(children).value;
+    f(value_mut);
+
+    <b>if</b> (map.constant_kv_size) {
+        <b>return</b>;
+    };
+
+    // validate that after modifications size invariants hold
+    <b>let</b> key_size = <a href="../../aptos-stdlib/../move-stdlib/doc/bcs.md#0x1_bcs_serialized_size">bcs::serialized_size</a>(&key);
+    <b>let</b> value_size = <a href="../../aptos-stdlib/../move-stdlib/doc/bcs.md#0x1_bcs_serialized_size">bcs::serialized_size</a>(value_mut);
+    map.<a href="big_ordered_map.md#0x1_big_ordered_map_validate_size_and_init_max_degrees">validate_size_and_init_max_degrees</a>(key_size, value_size);
+}
+</code></pre>
+
+
+
+</details>
+
+<a id="0x1_big_ordered_map_iter_remove"></a>
+
+## Function `iter_remove`
+
+Removes the entry from BigOrderedMap and returns the value which <code>key</code> maps to.
+Aborts if there is no entry for <code>key</code>.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_remove">iter_remove</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">big_ordered_map::IteratorPtrWithPath</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): V
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_remove">iter_remove</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): V {
+    <b>let</b> <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtrWithPath">IteratorPtrWithPath</a> { iterator: iter, path: path_to_leaf } = self;
+    <b>assert</b>!(!iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>(map), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EITER_OUT_OF_BOUNDS">EITER_OUT_OF_BOUNDS</a>));
+    <b>let</b> IteratorPtr::Some { node_index: _, child_iter, key } = iter;
+
+    // Optimize case <b>where</b> only root node <b>exists</b>
+    // (optimizes out borrowing and path creation in `find_leaf_path`)
+    <b>if</b> (map.root.is_leaf) {
+        <b>let</b> Child::Leaf {
+            value,
+        } = child_iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_remove">iter_remove</a>(&<b>mut</b> map.root.children);
+        <b>return</b> value;
+    };
+
+    <b>assert</b>!(!path_to_leaf.<a href="big_ordered_map.md#0x1_big_ordered_map_is_empty">is_empty</a>(), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EKEY_NOT_FOUND">EKEY_NOT_FOUND</a>));
+
+    <b>let</b> Child::Leaf {
+        value,
+    } = map.<a href="big_ordered_map.md#0x1_big_ordered_map_remove_at">remove_at</a>(path_to_leaf, &key);
+    value
 }
 </code></pre>
 
@@ -1946,7 +2211,7 @@ Aborts with EITER_OUT_OF_BOUNDS if iterator is pointing to the end.
 Requires the map is not changed after the input iterator is generated.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_next">iter_next</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_next">iter_next</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -1955,7 +2220,7 @@ Requires the map is not changed after the input iterator is generated.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_next">iter_next</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_next">iter_next</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
     <b>assert</b>!(!(self is IteratorPtr::End&lt;K&gt;), <a href="../../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="big_ordered_map.md#0x1_big_ordered_map_EITER_OUT_OF_BOUNDS">EITER_OUT_OF_BOUNDS</a>));
 
     <b>let</b> node_index = self.node_index;
@@ -1996,7 +2261,7 @@ Aborts with EITER_OUT_OF_BOUNDS if iterator is pointing to the beginning.
 Requires the map is not changed after the input iterator is generated.
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -2005,7 +2270,7 @@ Requires the map is not changed after the input iterator is generated.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>&lt;K: drop + <b>copy</b> + store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">IteratorPtr</a>&lt;K&gt; {
     <b>let</b> prev_index = <b>if</b> (self is IteratorPtr::End&lt;K&gt;) {
         map.max_leaf_index
     } <b>else</b> {
@@ -2174,7 +2439,7 @@ Borrow a node mutably, given an index. Works for both root (i.e. inline) node an
             <b>if</b> (current_node.is_leaf) {
                 <b>break</b>;
             };
-            <b>let</b> last_value = current_node.children.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>().<a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>(&current_node.children).iter_remove(&<b>mut</b> current_node.children);
+            <b>let</b> last_value = current_node.children.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>().<a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>(&current_node.children).<a href="big_ordered_map.md#0x1_big_ordered_map_iter_remove">iter_remove</a>(&<b>mut</b> current_node.children);
             current = last_value.node_index.stored_to_index();
             current_node.children.<a href="big_ordered_map.md#0x1_big_ordered_map_add">add</a>(key, last_value);
         };
@@ -2916,7 +3181,7 @@ Given a path to node (excluding the node itself), which is currently stored unde
 
                 <b>let</b> Child::Inner {
                     node_index: inner_child_index,
-                } = children.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>().<a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>(children).iter_remove(children);
+                } = children.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>().<a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>(children).<a href="big_ordered_map.md#0x1_big_ordered_map_iter_remove">iter_remove</a>(children);
 
                 <b>let</b> inner_child = self.nodes.<a href="big_ordered_map.md#0x1_big_ordered_map_remove">remove</a>(inner_child_index);
                 <b>if</b> (inner_child.is_leaf) {
@@ -2996,7 +3261,7 @@ Given a path to node (excluding the node itself), which is currently stored unde
             <b>let</b> old_max_key = *children.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>().<a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>(children).<a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>(children);
             <b>let</b> sibling_begin_iter = sibling_children.<a href="big_ordered_map.md#0x1_big_ordered_map_new_begin_iter">new_begin_iter</a>();
             <b>let</b> borrowed_max_key = *sibling_begin_iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>(sibling_children);
-            <b>let</b> borrowed_element = sibling_begin_iter.iter_remove(sibling_children);
+            <b>let</b> borrowed_element = sibling_begin_iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_remove">iter_remove</a>(sibling_children);
 
             children.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>().iter_add(children, borrowed_max_key, borrowed_element);
 
@@ -3006,7 +3271,7 @@ Given a path to node (excluding the node itself), which is currently stored unde
             // <b>if</b> sibling is the node <b>with</b> smaller keys, we remove a child from the end
             <b>let</b> sibling_end_iter = sibling_children.<a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>().<a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>(sibling_children);
             <b>let</b> borrowed_max_key = *sibling_end_iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>(sibling_children);
-            <b>let</b> borrowed_element = sibling_end_iter.iter_remove(sibling_children);
+            <b>let</b> borrowed_element = sibling_end_iter.<a href="big_ordered_map.md#0x1_big_ordered_map_iter_remove">iter_remove</a>(sibling_children);
 
             children.<a href="big_ordered_map.md#0x1_big_ordered_map_add">add</a>(borrowed_max_key, borrowed_element);
 
@@ -3509,7 +3774,7 @@ Given a path to node (excluding the node itself), which is currently stored unde
 ### Function `lower_bound`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_lower_bound">lower_bound</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_lower_bound">lower_bound</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -3526,7 +3791,7 @@ Given a path to node (excluding the node itself), which is currently stored unde
 ### Function `find`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_find">find</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_find">find</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;, key: &K): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -3703,7 +3968,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `new_begin_iter`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_begin_iter">new_begin_iter</a>&lt;K: <b>copy</b>, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_begin_iter">new_begin_iter</a>&lt;K: <b>copy</b>, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -3720,7 +3985,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `new_end_iter`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>&lt;K: <b>copy</b>, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_new_end_iter">new_end_iter</a>&lt;K: <b>copy</b>, store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -3737,7 +4002,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `iter_is_begin`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_begin">iter_is_begin</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): bool
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_begin">iter_is_begin</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): bool
 </code></pre>
 
 
@@ -3754,7 +4019,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `iter_is_end`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, _map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): bool
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_is_end">iter_is_end</a>&lt;K: store, V: store&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, _map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): bool
 </code></pre>
 
 
@@ -3771,7 +4036,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `iter_borrow_key`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>&lt;K&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;): &K
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_key">iter_borrow_key</a>&lt;K&gt;(self: &<a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;): &K
 </code></pre>
 
 
@@ -3788,7 +4053,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `iter_borrow`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow">iter_borrow</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): &V
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow">iter_borrow</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): &V
 </code></pre>
 
 
@@ -3805,7 +4070,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `iter_borrow_mut`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_mut">iter_borrow_mut</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): &<b>mut</b> V
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_borrow_mut">iter_borrow_mut</a>&lt;K: drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<b>mut</b> <a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): &<b>mut</b> V
 </code></pre>
 
 
@@ -3822,7 +4087,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `iter_next`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_next">iter_next</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_next">iter_next</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
@@ -3839,7 +4104,7 @@ std::cmp::compare(key, k) == std::cmp::Ordering::Greater);
 ### Function `iter_prev`
 
 
-<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="big_ordered_map.md#0x1_big_ordered_map_iter_prev">iter_prev</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(self: <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;, map: &<a href="big_ordered_map.md#0x1_big_ordered_map_BigOrderedMap">big_ordered_map::BigOrderedMap</a>&lt;K, V&gt;): <a href="big_ordered_map.md#0x1_big_ordered_map_IteratorPtr">big_ordered_map::IteratorPtr</a>&lt;K&gt;
 </code></pre>
 
 
