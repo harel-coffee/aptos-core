@@ -399,7 +399,10 @@ fn compare_values_and_layouts<
     } else {
         // Layouts pass validation only if they are both None. Otherwise, validation pessimistically
         // fails. This is a simple logic that avoids potentially costly layout comparisons.
-        prev_maybe_layout.is_none() && new_maybe_layout.is_none() && prev_value == new_value
+        prev_maybe_layout.is_none() && new_maybe_layout.is_none()
+            // short-circuit if length doesn't match.
+            //&& prev_value.bytes().map(|b| b.len()) == new_value.bytes().map(|b| b.len())
+            && prev_value == new_value
     }
     // TODO(BlockSTMv2): optimize layout validation (potentially based on size, or by having
     // a more efficient representation. Optimizing value validation by having a configurable

@@ -2544,21 +2544,22 @@ where
         let _timer = BLOCK_EXECUTOR_INNER_EXECUTE_BLOCK.start_timer();
 
         if self.config.local.concurrency_level > 1 {
-            let parallel_result = if self.config.local.blockstm_v2 {
+            let parallel_result = 
+            // if self.config.local.blockstm_v2 {
                 self.execute_transactions_parallel_v2(
                     signature_verified_block,
                     base_view,
                     transaction_slice_metadata,
                     module_cache_manager_guard,
-                )
-            } else {
-                self.execute_transactions_parallel(
-                    signature_verified_block,
-                    base_view,
-                    transaction_slice_metadata,
-                    module_cache_manager_guard,
-                )
-            };
+                );
+            // } else {
+            //     self.execute_transactions_parallel(
+            //         signature_verified_block,
+            //         base_view,
+            //         transaction_slice_metadata,
+            //         module_cache_manager_guard,
+            //     )
+            // };
 
             // If parallel gave us result, return it
             if let Ok(output) = parallel_result {

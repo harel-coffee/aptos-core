@@ -271,7 +271,11 @@ impl DataReadComparator {
         }
     }
 
-    fn data_read_equals<V: PartialEq>(&self, v1: &DataRead<V>, v2: &DataRead<V>) -> bool {
+    fn data_read_equals<V: TransactionWrite + PartialEq>(
+        &self,
+        v1: &DataRead<V>,
+        v2: &DataRead<V>,
+    ) -> bool {
         match (v1, v2) {
             (
                 DataRead::Versioned(v1_version, v1_value, v1_layout),
@@ -286,6 +290,8 @@ impl DataReadComparator {
                     self.blockstm_v2_incarnation.is_some()
                         && v1_layout.is_none()
                         && v2_layout.is_none()
+                        // short-circuit if length doesn't match.
+                        // && value_size(&v1_value) == value_size(&v2_value)
                         && v1_value == v2_value
                 }
             },
