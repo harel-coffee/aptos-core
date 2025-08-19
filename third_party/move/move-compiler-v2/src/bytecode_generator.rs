@@ -395,6 +395,7 @@ impl<'env> Generator<'env> {
         struct_name: String,
         field_name: Symbol,
         variant: Option<Symbol>,
+        offset: usize,
     ) -> Symbol {
         let mut fun_name = self.env().symbol_pool().make(&format!(
             "borrow{}from${}${}",
@@ -409,6 +410,11 @@ impl<'env> Generator<'env> {
                 variant.display(self.env().symbol_pool())
             ));
         }
+        fun_name = self.env().symbol_pool().make(&format!(
+            "{}${}",
+            fun_name.display(self.env().symbol_pool()),
+            offset
+        ));
         fun_name
     }
 
@@ -1675,57 +1681,75 @@ impl Generator<'_> {
         fields: &[FieldId],
         src: TempIndex,
     ) {
+        let dest_type = self.temp_type(dest).clone();
+        let arg_type = self.temp_type(src).clone();
+        let mut src = src;
+        if arg_type.is_mutable_reference() && dest_type.is_immutable_reference() {
+            let target_ty = Type::Reference(
+                ReferenceKind::Immutable,
+                Box::new(Type::Struct(str.module_id, str.id, str.inst.clone())),
+            );
+            src = if let Some((new_temp, oper)) =
+                self.get_conversion(&target_ty, &arg_type.clone(), false)
+            {
+                self.emit_call(id, vec![new_temp], oper, vec![src]);
+                new_temp
+            } else {
+                src
+            }
+        }
+
         let struct_env = self.env().get_struct(str.to_qualified_id());
+        let struct_name_symbol = struct_env.get_name();
         let mid = str.module_id;
-        let dest_type = self.temp_type(dest);
-        let arg_type = self.temp_type(src);
         let struct_env_full_name = struct_env.get_full_name_with_address().replace("::", "$");
+        let field_name = struct_env.get_field(fields[0]).get_name();
         let fun_name = self.build_cross_module_access_borrow_field_api_name(
             dest_type.is_mutable_reference(),
-            struct_env_full_name,
-            struct_env.get_field(fields[0]).get_name(),
+            struct_env_full_name.clone(),
+            field_name,
             None,
+            struct_env.get_field(fields[0]).get_offset(),
         );
-        let fun_id = FunId::new(fun_name);
-        // First check aggregated borrow function is available
-        // non-enum structs will always execute this branch
-        if self.env().get_module(mid).find_function(fun_name).is_some() {
-            let mut src = src;
-            if arg_type.is_mutable_reference() && dest_type.is_immutable_reference() {
-                let target_ty = Type::Reference(
-                    ReferenceKind::Immutable,
-                    Box::new(Type::Struct(str.module_id, str.id, str.inst.clone())),
-                );
-                src = if let Some((new_temp, oper)) =
-                    self.get_conversion(&target_ty, &arg_type.clone(), false)
-                {
-                    self.emit_call(id, vec![new_temp], oper, vec![src]);
-                    new_temp
-                } else {
-                    src
-                }
-            }
+        if !struct_env.has_variants() {
+            // handle non-enum structs
+            assert_eq!(fields.len(), 1);
+            self.check_and_generate_internal_struct_api_error(
+                id,
+                &mid,
+                "borrow field",
+                fun_name,
+                struct_name_symbol,
+            );
+            let fun_id = FunId::new(fun_name);
             self.emit_call(
                 id,
                 vec![dest],
                 BytecodeOperation::Function(mid, fun_id, str.inst.to_owned()),
                 vec![src],
             );
-            return;
-        }
-        if struct_env.has_variants() {
-            let symbol_pool = self.env().symbol_pool();
-            let struct_name_symbol = struct_env.get_name();
-            let struct_name_symbol_full =
-                struct_env.get_full_name_with_address().replace("::", "$");
-            let mut ordered_groups = vec![];
-            for fid in fields {
-                let field_name = struct_env
-                    .get_field(*fid)
-                    .get_name()
-                    .display(symbol_pool)
-                    .to_string();
-                ordered_groups.push((fid, field_name));
+        } else {
+            // by default, we group fields by offset
+            let mut fields_by_offset: BTreeMap<usize, BTreeSet<FieldId>> = BTreeMap::new();
+            for field in fields {
+                fields_by_offset
+                    .entry(struct_env.get_field(*field).get_offset())
+                    .or_default()
+                    .insert(*field);
+            }
+            let mut ordered_groups = fields_by_offset
+                .into_iter()
+                .sorted_by(|g1, g2| g1.1.len().cmp(&g2.1.len()))
+                .collect_vec();
+            let mut variant = None;
+            // if the function is not available, we handle each field individually based on its variant
+            if self.env().get_module(mid).find_function(fun_name).is_none() {
+                ordered_groups.clear();
+                for fid in fields {
+                    let offset = struct_env.get_field(*fid).get_offset();
+                    let fid_set = BTreeSet::from_iter(vec![*fid]);
+                    ordered_groups.push((offset, fid_set));
+                }
             }
             let mut bool_temp: Option<TempIndex> = None;
             let end_label = if ordered_groups.len() > 1 {
@@ -1733,23 +1757,26 @@ impl Generator<'_> {
             } else {
                 None
             };
-            while let Some((field_id, field_name)) = ordered_groups.pop() {
-                let variant = self
-                    .env()
-                    .get_struct(str.to_qualified_id())
-                    .get_field(*field_id)
-                    .get_variant()
-                    .expect("variant name defined");
+            while let Some((offset, group_fields)) = ordered_groups.pop() {
+                let variants = group_fields
+                    .iter()
+                    .map(|fid| {
+                        self.env()
+                            .get_struct(str.to_qualified_id())
+                            .get_field(*fid)
+                            .get_variant()
+                            .expect("variant name defined")
+                    })
+                    .collect_vec();
                 let next_group_label = if !ordered_groups.is_empty() {
                     let next_group_label = self.new_label(id);
                     let this_group_label = self.new_label(id);
-                    let variants = vec![variant];
                     self.gen_test_variants_operation(
                         id,
                         &mut bool_temp,
                         this_group_label,
                         &str,
-                        variants,
+                        variants.clone(),
                         src,
                     );
                     self.emit_with(id, |attr| Bytecode::Jump(attr, next_group_label));
@@ -1758,14 +1785,16 @@ impl Generator<'_> {
                 } else {
                     None
                 };
-
-                let dest_type = self.temp_type(dest);
-                let arg_type = self.temp_type(src);
+                if self.env().get_module(mid).find_function(fun_name).is_none() {
+                    assert_eq!(variants.len(), 1);
+                    variant = Some(variants[0]);
+                }
                 let fun_name = self.build_cross_module_access_borrow_field_api_name(
                     dest_type.is_mutable_reference(),
-                    struct_name_symbol_full.clone(),
-                    self.env().symbol_pool().make(&field_name),
-                    Some(variant),
+                    struct_env_full_name.clone(),
+                    field_name,
+                    variant,
+                    offset,
                 );
                 self.check_and_generate_internal_struct_api_error(
                     id,
@@ -1775,21 +1804,6 @@ impl Generator<'_> {
                     struct_name_symbol,
                 );
                 let fun_id = FunId::new(fun_name);
-                let mut src = src;
-                if arg_type.is_mutable_reference() && dest_type.is_immutable_reference() {
-                    let target_ty = Type::Reference(
-                        ReferenceKind::Immutable,
-                        Box::new(Type::Struct(str.module_id, str.id, str.inst.clone())),
-                    );
-                    src = if let Some((new_temp, oper)) =
-                        self.get_conversion(&target_ty, &arg_type.clone(), false)
-                    {
-                        self.emit_call(id, vec![new_temp], oper, vec![src]);
-                        new_temp
-                    } else {
-                        src
-                    }
-                }
                 self.emit_call(
                     id,
                     vec![dest],
@@ -2548,7 +2562,7 @@ impl Generator<'_> {
             }
         }
         for (pos, (temp, _)) in sub_matches {
-            let (_, field_name) = &fields[*pos];
+            let (offset, field_name) = &fields[*pos];
             let dest_type = self.temp_type(*temp);
             let src_type = self.temp_type(arg);
             let mut fun_name = self.build_cross_module_access_borrow_field_api_name(
@@ -2556,6 +2570,7 @@ impl Generator<'_> {
                 struct_name_full.clone(),
                 *field_name,
                 None,
+                *offset,
             );
             if variant.is_some() && self.env().get_module(mid).find_function(fun_name).is_none() {
                 fun_name = self.build_cross_module_access_borrow_field_api_name(
@@ -2563,6 +2578,7 @@ impl Generator<'_> {
                     struct_name_full.clone(),
                     *field_name,
                     variant,
+                    *offset,
                 );
             }
             self.check_and_generate_internal_struct_api_error(

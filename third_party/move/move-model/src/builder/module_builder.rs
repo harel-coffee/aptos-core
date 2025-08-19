@@ -4093,53 +4093,56 @@ impl ModuleBuilder<'_, '_> {
         variants: &[StructVariant],
         symbol_pool: &SymbolPool,
     ) -> (
-        BTreeMap<Symbol, (Vec<FieldId>, Type, bool)>,
-        BTreeMap<(Symbol, Symbol), (FieldId, Type)>,
+        BTreeMap<(Symbol, usize), (Vec<FieldId>, Type, bool)>,
+        BTreeMap<(Symbol, Symbol), (FieldId, Type, usize)>,
     ) {
-        // for fields that have same name and type across variants
-        let mut field_name_map = BTreeMap::<Symbol, Vec<(FieldId, Symbol)>>::new();
-        let mut field_type_map = BTreeMap::<Symbol, Type>::new();
-        // for fields that do not share across variants
+        // partition fields by name and offset when they have the same type
+        // fields that only appear in one variant are also put in here by default.
+        let mut field_name_map = BTreeMap::<(Symbol, usize), Vec<(FieldId, Symbol)>>::new();
+        let mut field_type_map = BTreeMap::<(Symbol, usize), Type>::new();
+        // for fields that share across variants but have different types, they are moved to here.
         let mut stand_alone_field = BTreeSet::<Symbol>::new();
-        let mut stand_alone_map = BTreeMap::<(Symbol, Symbol), (FieldId, Type)>::new();
+        let mut stand_alone_map = BTreeMap::<(Symbol, Symbol), (FieldId, Type, usize)>::new();
 
         for variant in variants {
             for (field_name, field) in Self::sorted_fields(&variant.fields) {
+                let offset = field.offset;
                 let fid = FieldId::new(symbol_pool.make(&FieldId::make_variant_field_id_str(
                     symbol_pool.string(variant.name).as_str(),
                     symbol_pool.string(*field_name).as_str(),
                 )));
                 if stand_alone_field.contains(field_name) {
-                    stand_alone_map.insert((*field_name, variant.name), (fid, field.ty.clone()));
+                    stand_alone_map
+                        .insert((*field_name, variant.name), (fid, field.ty.clone(), offset));
                     continue;
                 }
 
                 match (
-                    field_type_map.get(field_name),
-                    field_name_map.get_mut(field_name),
+                    field_type_map.get(&(*field_name, offset)),
+                    field_name_map.get_mut(&(*field_name, offset)),
                 ) {
                     (Some(existing_ty), Some(fids)) if existing_ty == &field.ty => {
                         fids.push((fid, variant.name));
                     },
                     (Some(_), _) => {
-                        // once we find a field with same name but different type, we move it to stand_alone_field and stand_alone_map
+                        // once we find a field with same name, same offset but different type, we move it to stand_alone_field and stand_alone_map
                         stand_alone_field.insert(*field_name);
                         stand_alone_map
-                            .insert((*field_name, variant.name), (fid, field.ty.clone()));
-                        let ids = field_name_map.remove(field_name);
-                        let ty = field_type_map.remove(field_name);
+                            .insert((*field_name, variant.name), (fid, field.ty.clone(), offset));
+                        let ids = field_name_map.remove(&(*field_name, offset));
+                        let ty = field_type_map.remove(&(*field_name, offset));
                         if let (Some(ids), Some(ty)) = (ids, ty) {
                             for (fid, variant_name) in ids {
                                 stand_alone_map
-                                    .insert((*field_name, variant_name), (fid, ty.clone()));
+                                    .insert((*field_name, variant_name), (fid, ty.clone(), offset));
                             }
                         }
                     },
                     // find a field with unseen name and type
                     (None, _) => {
-                        field_type_map.insert(*field_name, field.ty.clone());
+                        field_type_map.insert((*field_name, offset), field.ty.clone());
 
-                        field_name_map.insert(*field_name, vec![(fid, variant.name)]);
+                        field_name_map.insert((*field_name, offset), vec![(fid, variant.name)]);
                     },
                 }
             }
@@ -4148,10 +4151,10 @@ impl ModuleBuilder<'_, '_> {
         (
             field_name_map
                 .into_iter()
-                .filter_map(|(field_name, fids)| {
-                    field_type_map.get(&field_name).map(|ty| {
+                .filter_map(|((field_name, offset), fids)| {
+                    field_type_map.get(&(field_name, offset)).map(|ty| {
                         let fids = fids.iter().map(|(fid, _)| *fid).collect_vec();
-                        (field_name, (fids, ty.clone(), true))
+                        ((field_name, offset), (fids, ty.clone(), true))
                     })
                 })
                 .collect(),
@@ -4200,12 +4203,17 @@ impl ModuleBuilder<'_, '_> {
         let field_map = match &struct_entry.layout {
             StructLayout::Singleton(fields, _) => fields
                 .iter()
-                .map(|(name, field)| (*name, (vec![FieldId::new(*name)], field.ty.clone(), false)))
+                .map(|(name, field)| {
+                    (
+                        (*name, field.offset),
+                        (vec![FieldId::new(*name)], field.ty.clone(), false),
+                    )
+                })
                 .collect(),
             StructLayout::Variants(variants) => {
                 let (field_map, stand_alone_map) =
                     self.collect_shared_variant_fields(variants, symbol_pool);
-                for ((field_name, variant_name), (field_id, ty)) in stand_alone_map {
+                for ((field_name, variant_name), (field_id, ty, offset)) in stand_alone_map {
                     let fun_data = self.build_borrow_function(
                         struct_name,
                         field_name,
@@ -4217,6 +4225,7 @@ impl ModuleBuilder<'_, '_> {
                         dst_mutable,
                         true,
                         Some(variant_name),
+                        offset,
                     );
                     let fun_id = FunId::new(fun_data.name);
                     function_data.insert(fun_id, fun_data);
@@ -4225,7 +4234,7 @@ impl ModuleBuilder<'_, '_> {
             },
             StructLayout::None => BTreeMap::new(),
         };
-        for (field_name, (field_ids, ty, is_variant)) in field_map {
+        for ((field_name, offset), (field_ids, ty, is_variant)) in field_map {
             let fun_data = self.build_borrow_function(
                 struct_name,
                 field_name,
@@ -4237,13 +4246,14 @@ impl ModuleBuilder<'_, '_> {
                 dst_mutable,
                 is_variant,
                 None,
+                offset,
             );
             let fun_id = FunId::new(fun_data.name);
             function_data.insert(fun_id, fun_data);
         }
     }
 
-    /// Create the borrow field api `borrow[_mut_]$struct_name$field_name[$variant_name]($s: &[mut] struct_type): &[mut] field_type` for structs/enums
+    /// Create the borrow field api `borrow[_mut_]$struct_name$field_name[$variant_name]$offset($s: &[mut] struct_type): &[mut] field_type` for structs/enums
     fn build_borrow_function(
         &self,
         struct_name: Symbol,
@@ -4256,6 +4266,7 @@ impl ModuleBuilder<'_, '_> {
         dst_mutable: bool,
         is_variant: bool,
         variant_name_opt: Option<Symbol>,
+        offset: usize,
     ) -> FunctionData {
         let symbol_pool = self.parent.env.symbol_pool();
 
@@ -4265,7 +4276,7 @@ impl ModuleBuilder<'_, '_> {
         );
 
         let fun_name_str = format!(
-            "borrow{}from${}${}{}",
+            "borrow{}from${}${}{}${}",
             if dst_mutable { "_mut_" } else { "_" },
             struct_name.display(symbol_pool),
             field_name.display(symbol_pool),
@@ -4273,7 +4284,8 @@ impl ModuleBuilder<'_, '_> {
                 format!("${}", variant_name.display(symbol_pool))
             } else {
                 "".to_string()
-            }
+            },
+            offset,
         );
         let fun_name = symbol_pool.make(&fun_name_str);
 

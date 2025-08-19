@@ -18,10 +18,10 @@ module 0xc0ffee::m {
     friend fun unpack_mut_ref$0xc0ffee$m$Lazy($s: &mut Lazy): (&mut || has drop) {
         Tuple(Borrow(Mutable)(select_variants m::Lazy.0($s)))
     }
-    friend fun borrow_from$0xc0ffee$m$Lazy$0($s: &Lazy): &|| has drop {
+    friend fun borrow_from$0xc0ffee$m$Lazy$0$0($s: &Lazy): &|| has drop {
         Borrow(Immutable)(select m::Lazy.0($s))
     }
-    friend fun borrow_mut_from$0xc0ffee$m$Lazy$0($s: &mut Lazy): &mut || has drop {
+    friend fun borrow_mut_from$0xc0ffee$m$Lazy$0$0($s: &mut Lazy): &mut || has drop {
         Borrow(Mutable)(select m::Lazy.0($s))
     }
     private fun __lambda__1__make_lazy() {
@@ -47,10 +47,10 @@ module 0xc0ffee::m_friend {
     friend fun unpack_mut_ref$0xc0ffee$m_friend$Lazy($s: &mut Lazy): (&mut || has drop) {
         Tuple(Borrow(Mutable)(select_variants m_friend::Lazy.0($s)))
     }
-    friend fun borrow_from$0xc0ffee$m_friend$Lazy$0($s: &Lazy): &|| has drop {
+    friend fun borrow_from$0xc0ffee$m_friend$Lazy$0$0($s: &Lazy): &|| has drop {
         Borrow(Immutable)(select m_friend::Lazy.0($s))
     }
-    friend fun borrow_mut_from$0xc0ffee$m_friend$Lazy$0($s: &mut Lazy): &mut || has drop {
+    friend fun borrow_mut_from$0xc0ffee$m_friend$Lazy$0$0($s: &mut Lazy): &mut || has drop {
         Borrow(Mutable)(select m_friend::Lazy.0($s))
     }
     private fun __lambda__1__make_lazy() {
@@ -94,10 +94,10 @@ module 0xc0ffee::m {
     friend fun unpack_mut_ref$0xc0ffee$m$Lazy($s: &mut Lazy): (&mut || has drop) {
         (&mut $s.0)
     }
-    friend fun borrow_from$0xc0ffee$m$Lazy$0($s: &Lazy): &|| has drop {
+    friend fun borrow_from$0xc0ffee$m$Lazy$0$0($s: &Lazy): &|| has drop {
         &$s.0
     }
-    friend fun borrow_mut_from$0xc0ffee$m$Lazy$0($s: &mut Lazy): &mut || has drop {
+    friend fun borrow_mut_from$0xc0ffee$m$Lazy$0$0($s: &mut Lazy): &mut || has drop {
         &mut $s.0
     }
     fun __lambda__1__make_lazy() {
@@ -120,10 +120,10 @@ module 0xc0ffee::m_friend {
     friend fun unpack_mut_ref$0xc0ffee$m_friend$Lazy($s: &mut Lazy): (&mut || has drop) {
         (&mut $s.0)
     }
-    friend fun borrow_from$0xc0ffee$m_friend$Lazy$0($s: &Lazy): &|| has drop {
+    friend fun borrow_from$0xc0ffee$m_friend$Lazy$0$0($s: &Lazy): &|| has drop {
         &$s.0
     }
-    friend fun borrow_mut_from$0xc0ffee$m_friend$Lazy$0($s: &mut Lazy): &mut || has drop {
+    friend fun borrow_mut_from$0xc0ffee$m_friend$Lazy$0$0($s: &mut Lazy): &mut || has drop {
         &mut $s.0
     }
     fun __lambda__1__make_lazy() {
