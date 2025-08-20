@@ -14,7 +14,7 @@ use aptos_storage_interface::{
 use aptos_types::{
     account_address::AccountAddress,
     account_config::AccountResource,
-    state_store::{state_key::StateKey, MoveResourceExt, StateView, StateViewId},
+    state_store::{state_key::StateKey, MoveResourceExt, StateView, StateViewId, TStateView},
     transaction::{SignedTransaction, VMValidatorResult},
     vm::modules::AptosModuleExtension,
 };

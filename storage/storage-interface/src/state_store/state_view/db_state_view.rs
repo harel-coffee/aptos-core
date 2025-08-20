@@ -7,13 +7,8 @@ use aptos_types::{
     ledger_info::LedgerInfo,
     state_store::{
         errors::StateViewError, state_key::StateKey, state_slot::StateSlot,
-<<<<<<< HEAD
         state_storage_usage::StateStorageUsage, state_value::StateValue, StateViewId,
         StateViewResult, TStateView,
-=======
-        state_storage_usage::StateStorageUsage, state_value::StateValue, StateViewResult,
-        TStateView,
->>>>>>> 96eeee3fd9 ([zaptos]  non-randomness block)
     },
     transaction::Version,
 };
@@ -54,7 +49,6 @@ impl DbStateView {
 impl TStateView for DbStateView {
     type Key = StateKey;
 
-<<<<<<< HEAD
     fn id(&self) -> StateViewId {
         if let Some(version) = self.version {
             StateViewId::TransactionValidation {
@@ -65,8 +59,6 @@ impl TStateView for DbStateView {
         }
     }
 
-=======
->>>>>>> 96eeee3fd9 ([zaptos]  non-randomness block)
     fn get_state_slot(&self, state_key: &StateKey) -> StateViewResult<StateSlot> {
         Ok(StateSlot::from_db_get(self.get(state_key)?))
     }
